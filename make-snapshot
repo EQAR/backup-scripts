@@ -192,7 +192,7 @@ then
 		rsync -ai "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > "${LOG_DIR}/${Job}/${Timestamp}"
 	else
 		echo
-		rsync -ain "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
+		rsync -aivn "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
 	fi
 else
 	echo -n "3. Creating new snapshot: "
@@ -201,7 +201,7 @@ else
 		rsync -ai "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > "${LOG_DIR}/${Job}/${Timestamp}"
 	else
 		echo
-		rsync -ain "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
+		rsync -aivn "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
 	fi
 fi
 
@@ -217,6 +217,16 @@ fi
 
 echo ; echo -n "4. Saving current tag to ${LIB_DIR}/${Job}.last: "
 
+if [ ! -d ${LIB_DIR} ]
+then
+	mkdir -p ${LIB_DIR}
+	if [ $? -ne 0 ]
+	then
+		echo "Error: could not create state directory ${LIB_DIR}."
+		exit 80
+	fi
+fi
+
 if [ "$DryRun"  = "n" ]
 then
 	echo $Timestamp > ${LIB_DIR}/${Job}.last
@@ -225,7 +235,7 @@ then
 		echo "OK."
 	else
 		echo "Failed."
-		exit 5
+		exit 81
 	fi
 else
 	echo "[skipped - dry run]"
