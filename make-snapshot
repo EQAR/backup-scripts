@@ -1,0 +1,237 @@
+#!/bin/bash
+
+############################################################
+##################### CONSTANTS ############################
+############################################################
+
+Timefile=".snapshot-timestamp"
+
+indent() { sed 's/^/   /'; }
+
+############################################################
+
+set -o pipefail -o nounset
+
+Self=$(basename $0)
+
+OPTIONS=ivn
+LONGOPTS=initial,verbose,dry-run
+
+! PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$Self" -- "$@")
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+    # e.g. return value is 1
+    #  then getopt has complained about wrong arguments to stdout
+    exit 10
+fi
+
+# read getopt’s output this way to handle the quoting right:
+eval set -- "$PARSED"
+
+Initial=n
+Verbose=n
+DryRun=n
+# now enjoy the options in order and nicely split until we see --
+while true
+do
+	case "$1" in
+        	-i|--initial)
+			Initial=y
+			shift
+			;;
+        	-v|--verbose)
+			Verbose=y
+			shift
+			;;
+        	-n|--dry-run)
+			DryRun=y
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+		*)
+			echo "Programming error"
+			exit 11
+			;;
+	esac
+done
+
+# handle non-option arguments
+if [[ $# -ne 1 ]]; then
+	echo "$Self: A single configuration file is required."
+	exit 12
+fi
+
+############################################################
+
+if [ -f "$1" -a -r "$1" ]; then
+	# source the job config
+	. "$1"
+	if [ -z ${Job+x} ]; then
+		Job=$(basename -s .conf $1)
+	fi
+	Self="${Self}@${Job}"
+else
+	# config not found or not readable
+	echo "$Self: configuration file $1 not found or not readable."
+	exit 20
+fi
+
+############################################################
+############################################################
+############################################################
+
+if [ -r "${LIB_DIR}/${Job}.last" ]
+then
+	if [ "$Initial"  = "y" ]
+	then
+		echo "Error: initial run chosen, but prior snapshot exists. Remove ${LIB_DIR}/${Job}.last to recreate initial snapshot."
+		exit 30
+	fi
+	Oldstamp="`cat \"${LIB_DIR}/${Job}.last\"`"
+else
+	if [ "$Initial" != "y" ]	# if we can't read Oldstamp it's okay if we're on an inital run
+	then
+		echo "Error: cannot read tag of last snapshot from ${LIB_DIR}/${Job}.last, and --initial was not passed."
+		exit 31
+	fi
+fi
+
+############################################################
+
+Timestamp="`date ${TAG_OPTIONS:-} +\"${TAG}\"`"
+
+echo "Creating new snapshot of ${BACKUP_TREE}:"
+echo " new tag:  $Timestamp" 
+echo " last tag: ${Oldstamp:-INITIAL RUN}"
+echo " target:   $REMOTE_BASE"
+echo
+
+if [ -e "${LOCK_DIR}/${Job}" ]
+then
+	echo "Snapshot already in progress, exiting."
+	exit 40
+fi
+
+echo -n "1. Placing lock file: "
+
+if [ ! -d "${LOCK_DIR}" ]	# it might rest on a temporary filesystem
+then
+	mkdir -p ${LOCK_DIR}
+	if [ $? -ne 0 ]
+	then
+		echo "Failed, could not create directory ${LOCK_DIR}."
+		exit 50
+	fi
+fi
+
+touch "${LOCK_DIR}/${Job}"
+
+if [ $? -eq 0 ]
+then
+	echo -n "OK, timestamp: "
+else
+	echo "Failed."
+	exit 55
+fi
+
+touch "${BACKUP_TREE}/${Timefile}"
+
+if [ $? -eq 0 ]
+then
+	echo "OK."
+	chmod 0444 "${BACKUP_TREE}/${Timefile}"
+else
+	echo "Failed."
+	exit 56
+fi
+
+############################################################
+
+if [ -z ${Oldstamp+x} ]
+then
+	
+	echo "2. Initial run, skipping check of previous snapshot."
+
+else
+
+	echo -n "2. Checking if last tag exists: "
+
+	rsync "${REMOTE_AUTH[@]}" "${REMOTE_BASE}$Oldstamp/" > /dev/null
+
+	if [ $? -eq 0 ]
+	then
+		echo "OK."
+	else
+		echo "Failed."
+		exit 60
+	fi
+
+fi
+
+############################################################
+
+echo 
+
+if [ ! -d ${LOG_DIR}/${Job} ]
+then
+	mkdir -p ${LOG_DIR}/${Job} 
+	if [ $? -ne 0 ]
+	then
+		echo "Error: could not create log directory ${LOG_DIR}/${Job}."
+		exit 70
+	fi
+fi
+
+if [ -z ${Oldstamp+x} ]
+then
+	echo -n "3. Creating initial snapshot: "
+	if [ "$DryRun"  = "n" ]
+	then
+		rsync -ai "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > "${LOG_DIR}/${Job}/${Timestamp}"
+	else
+		echo
+		rsync -ain "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
+	fi
+else
+	echo -n "3. Creating new snapshot: "
+	if [ "$DryRun"  = "n" ]
+	then
+		rsync -ai "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > "${LOG_DIR}/${Job}/${Timestamp}"
+	else
+		echo
+		rsync -ain "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
+	fi
+fi
+
+if [ $? -eq 0 ]
+then
+	echo "OK."
+else
+	echo "Failed: rsync returned $?."
+	exit 71
+fi
+
+############################################################
+
+echo ; echo -n "4. Saving current tag to ${LIB_DIR}/${Job}.last: "
+
+if [ "$DryRun"  = "n" ]
+then
+	echo $Timestamp > ${LIB_DIR}/${Job}.last
+	if [ $? -eq 0 ]
+	then
+		echo "OK."
+	else
+		echo "Failed."
+		exit 5
+	fi
+else
+	echo "[skipped - dry run]"
+fi
+
+echo -n "5. Removing lock file: "
+
+rm -f "${LOCK_DIR}/${Job}" && echo "Done." || echo "Failed."
+
