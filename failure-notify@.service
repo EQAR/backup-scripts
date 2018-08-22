@@ -1,0 +1,8 @@
+[Unit]
+Description=Email notification on unit failure
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/%p.conf
+ExecStart=/bin/bash -c '/bin/systemctl status %i | $MAIL -s "Unit %i on %H failed." $RECIPIENTS 2>&1'
+

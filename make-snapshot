@@ -7,6 +7,8 @@
 Timefile=".snapshot-timestamp"
 
 indent() { sed 's/^/   /'; }
+die()    { echo "Error: $1" >&2 ; exit $2; }
+warn()   { echo "Warning: $1" >&2 ; }
 
 ############################################################
 
@@ -21,7 +23,7 @@ LONGOPTS=initial,verbose,dry-run
 if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
     # e.g. return value is 1
     #  then getopt has complained about wrong arguments to stdout
-    exit 10
+    die "getopts problem" 10
 fi
 
 # read getopt’s output this way to handle the quoting right:
@@ -51,56 +53,51 @@ do
 			break
 			;;
 		*)
-			echo "Programming error"
-			exit 11
+			die "Programming error" 11
 			;;
 	esac
 done
 
 # handle non-option arguments
-if [[ $# -ne 1 ]]; then
-	echo "$Self: A single configuration file is required."
-	exit 12
-fi
+[[ $# -ne 1 ]] && die "$Self: A single configuration file is required." 12
 
 ############################################################
 
 if [ -f "$1" -a -r "$1" ]; then
 	# source the job config
-	. "$1"
+	source "$1"
 	if [ -z ${Job+x} ]; then
 		Job=$(basename -s .conf $1)
 	fi
 	Self="${Self}@${Job}"
 else
 	# config not found or not readable
-	echo "$Self: configuration file $1 not found or not readable."
-	exit 20
+	die "$Self: configuration file $1 not found or not readable." 20
 fi
 
 ############################################################
 ############################################################
 ############################################################
 
-if [ -r "${LIB_DIR}/${Job}.last" ]
-then
-	if [ "$Initial"  = "y" ]
-	then
-		echo "Error: initial run chosen, but prior snapshot exists. Remove ${LIB_DIR}/${Job}.last to recreate initial snapshot."
-		exit 30
-	fi
+if [ -e "${LIB_DIR}/${Job}.last" ]
+then	
+	# if we have a last snapshot tag, we shouldn't be on an initial run
+	[ "$Initial"  = "y" ] && die "Error: initial run chosen, but prior snapshot exists. Remove ${LIB_DIR}/${Job}.last to recreate initial snapshot." 30
+	[ -r "${LIB_DIR}/${Job}.last" ] || die "${LIB_DIR}/${Job}.last is not readable." 31
 	Oldstamp="`cat \"${LIB_DIR}/${Job}.last\"`"
-else
-	if [ "$Initial" != "y" ]	# if we can't read Oldstamp it's okay if we're on an inital run
-	then
-		echo "Error: cannot read tag of last snapshot from ${LIB_DIR}/${Job}.last, and --initial was not passed."
-		exit 31
-	fi
+else	
+	# if we have no last snapshot tag saved, we should have been called as initial run
+	[ "$Initial" != "y" ] && die "Error: cannot read tag of last snapshot from ${LIB_DIR}/${Job}.last, and --initial was not passed." 32
 fi
 
 ############################################################
 
-Timestamp="`date ${TAG_OPTIONS:-} +\"${TAG}\"`"
+touch "${BACKUP_TREE}/${Timefile}" || die "Cannot touch(1) timestamp file '${BACKUP_TREE}/${Timefile}'" 33
+
+chmod 0444 "${BACKUP_TREE}/${Timefile}" || warn "Could not make timestamp file '${BACKUP_TREE}/${Timefile}' read-only."
+
+Timestamp="`date ${TAG_OPTIONS:-} -r \"${BACKUP_TREE}/${Timefile}\" +\"${TAG}\"`"
+[ -z ${Timestamp+x} ] && die "Problem generating new snapshot tag." 34
 
 echo "Creating new snapshot of ${BACKUP_TREE}:"
 echo " new tag:  $Timestamp" 
@@ -108,43 +105,19 @@ echo " last tag: ${Oldstamp:-INITIAL RUN}"
 echo " target:   $REMOTE_BASE"
 echo
 
-if [ -e "${LOCK_DIR}/${Job}" ]
-then
-	echo "Snapshot already in progress, exiting."
-	exit 40
-fi
+[ -n "${LOCK_DIR:+x}" ] && [ -e "${LOCK_DIR}/${Job}" ] && die "Snapshot already in progress, exiting." 40
 
 echo -n "1. Placing lock file: "
 
-if [ ! -d "${LOCK_DIR}" ]	# it might rest on a temporary filesystem
+if [ -n "${LOCK_DIR:+x}" ]	# lock dir is optional
 then
-	mkdir -p ${LOCK_DIR}
-	if [ $? -ne 0 ]
+	if [ ! -d "${LOCK_DIR}" ]	# it might rest on a temporary filesystem
 	then
-		echo "Failed, could not create directory ${LOCK_DIR}."
-		exit 50
+		mkdir -p ${LOCK_DIR} || die "Failed, could not create directory ${LOCK_DIR}." 50
 	fi
-fi
-
-touch "${LOCK_DIR}/${Job}"
-
-if [ $? -eq 0 ]
-then
-	echo -n "OK, timestamp: "
+	touch "${LOCK_DIR}/${Job}" && echo "OK." || die "Failed." 55
 else
-	echo "Failed."
-	exit 55
-fi
-
-touch "${BACKUP_TREE}/${Timefile}"
-
-if [ $? -eq 0 ]
-then
-	echo "OK."
-	chmod 0444 "${BACKUP_TREE}/${Timefile}"
-else
-	echo "Failed."
-	exit 56
+	echo "[ skipped - LOCK_DIR not set]"
 fi
 
 ############################################################
@@ -164,24 +137,16 @@ else
 	then
 		echo "OK."
 	else
-		echo "Failed."
-		exit 60
+		die "Failed: rsync returned $?." 60
 	fi
 
 fi
 
 ############################################################
 
-echo 
-
 if [ ! -d ${LOG_DIR}/${Job} ]
 then
-	mkdir -p ${LOG_DIR}/${Job} 
-	if [ $? -ne 0 ]
-	then
-		echo "Error: could not create log directory ${LOG_DIR}/${Job}."
-		exit 70
-	fi
+	mkdir -p ${LOG_DIR}/${Job} || die "Error: could not create log directory ${LOG_DIR}/${Job}." 70
 fi
 
 if [ -z ${Oldstamp+x} ]
@@ -209,21 +174,19 @@ if [ $? -eq 0 ]
 then
 	echo "OK."
 else
-	echo "Failed: rsync returned $?."
-	exit 71
+	die "Failed: rsync returned $?." 71
 fi
 
 ############################################################
 
-echo ; echo -n "4. Saving current tag to ${LIB_DIR}/${Job}.last: "
+echo -n "4. Saving current tag to ${LIB_DIR}/${Job}.last: "
 
 if [ ! -d ${LIB_DIR} ]
 then
 	mkdir -p ${LIB_DIR}
 	if [ $? -ne 0 ]
 	then
-		echo "Error: could not create state directory ${LIB_DIR}."
-		exit 80
+		die "Error: could not create state directory ${LIB_DIR}." 80
 	fi
 fi
 
@@ -234,8 +197,7 @@ then
 	then
 		echo "OK."
 	else
-		echo "Failed."
-		exit 81
+		die "Failed." 81
 	fi
 else
 	echo "[skipped - dry run]"
@@ -243,5 +205,10 @@ fi
 
 echo -n "5. Removing lock file: "
 
-rm -f "${LOCK_DIR}/${Job}" && echo "Done." || echo "Failed."
+if [ -n "${LOCK_DIR:+x}" ]	# lock dir is optional
+then
+	rm -f "${LOCK_DIR}/${Job}" && echo "Done." || echo "Failed."
+else
+	echo "[ skipped - LOCK_DIR not set]"
+fi
 

@@ -1,0 +1,8 @@
+[Unit]
+Description=Run snapshot-style backup
+OnFailure=failure-notify@%n
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/make-snapshot /etc/backup/snapshots/%i.conf
+
