@@ -59,21 +59,30 @@ do
 done
 
 # handle non-option arguments
-[[ $# -ne 1 ]] && die "$Self: A single configuration file is required." 12
+[[ $# -gt 1 ]] && die "$Self: only one single configuration file can be provided." 12
 
 ############################################################
 
-if [ -f "$1" -a -r "$1" ]; then
+if [ $# -eq 1 ]
+then
+	[ -f "$1" -a -r "$1" ] || die "$Self: configuration file $1 not found or not readable." 20
 	# source the job config
 	source "$1"
 	if [ -z ${Job+x} ]; then
 		Job=$(basename -s .conf $1)
 	fi
 	Self="${Self}@${Job}"
-else
-	# config not found or not readable
-	die "$Self: configuration file $1 not found or not readable." 20
 fi
+
+# check whether all mandatory variables were set in config file or environment
+
+[ -z ${LIB_DIR+x} ]		&& die "State directory (LIB_DIR) is required." 21
+[ -z ${LOG_DIR+x} ]		&& die "Log directory (LOG_DIR) is required." 21
+[ -z ${TAG+x} ]			&& die "Snapshot tag format (TAG) is required." 21
+[ -z ${BACKUP_TREE+x} ]		&& die "Tree to be snapshotted (BACKUP_TREE) is required." 21
+[ -z ${BACKUP_FILTER+x} ]	&& die "Filter filename (BACKUP_FILTER) is required." 21
+[ -z ${REMOTE_BASE+x} ]		&& die "Destination (REMOTE_BASE) is required." 21
+[ -z ${Job+x} ]			&& die "Job name (Job) is required." 21
 
 ############################################################
 ############################################################
