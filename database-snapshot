@@ -1,0 +1,132 @@
+#!/bin/bash
+
+############################################################
+##################### CONSTANTS ############################
+############################################################
+
+Timefile=".snapshot-timestamp"
+
+indent() { sed 's/^/   /'; }
+die()    { echo "Error: $1" >&2 ; exit $2; }
+warn()   { echo "Warning: $1" >&2 ; }
+
+############################################################
+
+set -o pipefail -o nounset
+
+Self=$(basename $0)
+
+OPTIONS=ivn
+LONGOPTS=initial,verbose,dry-run
+
+! PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$Self" -- "$@")
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+    # e.g. return value is 1
+    #  then getopt has complained about wrong arguments to stdout
+    die "getopts problem" 10
+fi
+
+# read getopt’s output this way to handle the quoting right:
+eval set -- "$PARSED"
+
+Verbose=n
+DryRun=n
+# now enjoy the options in order and nicely split until we see --
+while true
+do
+	case "$1" in
+        	-v|--verbose)
+			Verbose=y
+			shift
+			;;
+        	-n|--dry-run)
+			DryRun=y
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+		*)
+			die "Programming error" 11
+			;;
+	esac
+done
+
+# handle non-option arguments
+[[ $# -gt 1 ]] && die "$Self: only one single configuration file can be provided." 12
+
+############################################################
+
+if [ $# -eq 1 ]
+then
+	[ -f "$1" -a -r "$1" ] || die "$Self: configuration file $1 not found or not readable." 20
+	# source the job config
+	source "$1"
+	if [ -z ${Job+x} ]; then
+		Job=$(basename -s .conf $1)
+	fi
+	Self="${Self}@${Job}"
+fi
+
+# check whether all mandatory variables were set in config file or environment
+[ -z ${Job+x} ]			&& die "Job name (Job) is required." 21
+[ -z ${DATABASES+x} ]		&& die "List of databases (DATABASES) is required." 21
+[ -z ${DB_DUMP+x} ]		&& die "Dump utility (DB_DUMP) is required." 21
+[ -z ${REMOTE_BASE+x} ]		&& die "Remote path (REMOTE_BASE) is required." 21
+[ -z ${TAG+x} ]			&& die "Snapshot tag format (TAG) is required." 21
+
+############################################################
+
+Outdir="$(mktemp -d)" || die "Could not create temporary directory." 30
+
+touch "${Outdir}/${Timefile}" || die "Cannot touch(1) timestamp file '${Outdir}/${Timefile}'" 31
+
+chmod 0444 "${Outdir}/${Timefile}" || warn "Could not make timestamp file '${Outdir}/${Timefile}' read-only."
+
+Timestamp="$(date ${TAG_OPTIONS:-} -r "${Outdir}/${Timefile}" +"${TAG}")"
+[ -z "${Timestamp+x}" ] && die "Problem generating new snapshot tag." 32
+
+cd ${Outdir}
+
+echo -n "Creating snapshots in ${Outdir}:"
+
+[ -n "${DB_USER:+x}" ] && SUDO_CMD="sudo -u ${DB_USER:-}"
+
+for Db in ${DATABASES}
+do
+	echo -n " ${Db}"
+	${SUDO_CMD:-} ${DB_DUMP} ${DB_ARGS[@]:-} "${Db}" > "${Db}.sql" && echo -n "--OK" || die "--Failed!" 40
+done
+
+echo ; echo -n "Copying to ${REMOTE_BASE}:"
+
+if [ "$DryRun"  = "n" ]
+then
+	rsync -a "${REMOTE_AUTH[@]}" "${Outdir}/" "${REMOTE_BASE}$Timestamp/"
+else
+	echo
+	rsync -avn "${REMOTE_AUTH[@]}" "${Outdir}/" "${REMOTE_BASE}$Timestamp/"
+fi
+
+if [ $? -ne 0 ]
+then
+	echo " Error code: $?"
+	die "rsync failed, retaining local files." 50
+else
+	echo " Done."
+	echo -n "Deleting temporary files:"
+
+	for Db in ${DATABASES}
+	do
+		rm -f "${Db}.sql" && echo -n " ${Db}.sql" || die "Could not delete ${Db}.sql." 60
+	done
+
+	rm -f "${Timefile}" && echo -n " ${Timefile}" || die "Could not delete ${Timefile}." 61
+
+	cd /
+	rmdir "${Outdir}" && echo -n " ${Outdir}" || die "Could not remove ${Outdir}." 62
+
+	echo " Done."
+fi
+

@@ -1,0 +1,8 @@
+[Unit]
+Description=Create snapshot database dump and store on remote server
+OnFailure=failure-notify@%n
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/database-snapshot /etc/backup/snapshots/%i.conf
+
