@@ -93,7 +93,7 @@ then
 	# if we have a last snapshot tag, we shouldn't be on an initial run
 	[ "$Initial"  = "y" ] && die "Error: initial run chosen, but prior snapshot exists. Remove ${LIB_DIR}/${Job}.last to recreate initial snapshot." 30
 	[ -r "${LIB_DIR}/${Job}.last" ] || die "${LIB_DIR}/${Job}.last is not readable." 31
-	Oldstamp="`cat \"${LIB_DIR}/${Job}.last\"`"
+	Oldstamp="$(cat "${LIB_DIR}/${Job}.last")"
 else	
 	# if we have no last snapshot tag saved, we should have been called as initial run
 	[ "$Initial" != "y" ] && die "Error: cannot read tag of last snapshot from ${LIB_DIR}/${Job}.last, and --initial was not passed." 32
@@ -105,7 +105,7 @@ touch "${BACKUP_TREE}/${Timefile}" || die "Cannot touch(1) timestamp file '${BAC
 
 chmod 0444 "${BACKUP_TREE}/${Timefile}" || warn "Could not make timestamp file '${BACKUP_TREE}/${Timefile}' read-only."
 
-Timestamp="`date ${TAG_OPTIONS:-} -r \"${BACKUP_TREE}/${Timefile}\" +\"${TAG}\"`"
+Timestamp="$(date ${TAG_OPTIONS:-} -r "${BACKUP_TREE}/${Timefile}" +"${TAG}")"
 [ -z ${Timestamp+x} ] && die "Problem generating new snapshot tag." 34
 
 echo "Creating new snapshot of ${BACKUP_TREE}:"
