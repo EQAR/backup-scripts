@@ -7,7 +7,7 @@
 Timefile=".snapshot-timestamp"
 
 indent() { sed 's/^/   /'; }
-die()    { echo "Error: $1" >&2 ; exit $2; }
+die()    { echo "Error: $1 (code=$2)" >&2 ; exit $2; }
 warn()   { echo "Warning: $1" >&2 ; }
 
 ############################################################
@@ -141,12 +141,13 @@ else
 	echo -n "2. Checking if last tag exists: "
 
 	rsync "${REMOTE_AUTH[@]}" "${REMOTE_BASE}$Oldstamp/" > /dev/null
+	RsyncExit=$?
 
-	if [ $? -eq 0 ]
+	if [ $RsyncExit -eq 0 ]
 	then
 		echo "OK."
 	else
-		die "Failed: rsync returned $?." 60
+		die "Failed: rsync returned $RsyncExit." 60
 	fi
 
 fi
@@ -164,26 +165,30 @@ then
 	if [ "$DryRun"  = "n" ]
 	then
 		rsync -ai "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > "${LOG_DIR}/${Job}/${Timestamp}"
+		RsyncExit=$?
 	else
 		echo
 		rsync -aivn "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
+		RsyncExit=$?
 	fi
 else
 	echo -n "3. Creating new snapshot: "
 	if [ "$DryRun"  = "n" ]
 	then
 		rsync -ai "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > "${LOG_DIR}/${Job}/${Timestamp}"
+		RsyncExit=$?
 	else
 		echo
 		rsync -aivn "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
+		RsyncExit=$?
 	fi
 fi
 
-if [ $? -eq 0 ]
+if [ $RsyncExit -eq 0 -o $RsyncExit -eq 24 ] # code 24: source file vanished during transfer, that can happen
 then
 	echo "OK."
 else
-	die "Failed: rsync returned $?." 71
+	die "Failed: rsync returned $RsyncExit." 71
 fi
 
 ############################################################
