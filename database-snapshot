@@ -16,42 +16,31 @@ set -o pipefail -o nounset
 
 Self=$(basename $0)
 
-OPTIONS=ivn
-LONGOPTS=initial,verbose,dry-run
+# long options to short ones
+for arg in "$@"
+do
+    shift
+    case "$arg" in
+        "--dry-run")    set -- "$@" "-n" ;;
+        "--verbose")    set -- "$@" "-v" ;;
+        *)              set -- "$@" "$arg"
+  esac
+done
 
-! PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$Self" -- "$@")
-if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-    # e.g. return value is 1
-    #  then getopt has complained about wrong arguments to stdout
-    die "getopts problem" 10
-fi
-
-# read getopt’s output this way to handle the quoting right:
-eval set -- "$PARSED"
-
+# defaults
 Verbose=n
 DryRun=n
-# now enjoy the options in order and nicely split until we see --
-while true
+# parse options
+OPTIND=1
+while getopts "nv" opt
 do
-	case "$1" in
-        	-v|--verbose)
-			Verbose=y
-			shift
-			;;
-        	-n|--dry-run)
-			DryRun=y
-			shift
-			;;
-		--)
-			shift
-			break
-			;;
-		*)
-			die "Programming error" 11
-			;;
-	esac
+    case "$opt" in
+        "n") DryRun=y ;;
+        "v") Verbose=y ;;
+        "?") die "unknown option" 10 ;;
+    esac
 done
+shift $(expr $OPTIND - 1) # remove options from positional parameters
 
 # handle non-option arguments
 [[ $# -gt 1 ]] && die "$Self: only one single configuration file can be provided." 12
