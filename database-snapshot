@@ -76,37 +76,70 @@ chmod 0444 "${Outdir}/${Timefile}" || warn "Could not make timestamp file '${Out
 Timestamp="$(date ${TAG_OPTIONS:-} -r "${Outdir}/${Timefile}" +"${TAG}")"
 [ -z "${Timestamp+x}" ] && die "Problem generating new snapshot tag." 32
 
-cd ${Outdir}
+# set defaults for optional variables
+[ -z ${WORK_DIR+x} ]    && WORK_DIR=${Outdir}
+[ -z ${DB_ARGS+x} ]     && DB_ARGS=""
 
-echo -n "Creating snapshots in ${Outdir}:"
+echo "- Creating snapshots in ${Outdir}:"
 
 [ -n "${DB_USER:+x}" ] && SUDO_CMD="sudo -u ${DB_USER:-}"
 
-for Db in ${DATABASES}
+is_array() {
+    [[ $# -ne 1 ]] && echo "is_array(): supply exactly one variable name as an argument" >&2 && return 2
+    local var=$1
+    [[ "$(declare -p "$var" 2> /dev/null)" =~ "declare -a" ]] && return 0 || return 1
+}
+
+for (( i=0; i<${#DATABASES[@]}; i++ ))
 do
-	echo -n " ${Db}"
-	${SUDO_CMD:-} ${DB_DUMP} ${DB_ARGS[@]:-} "${Db}" > "${Db}.sql" && echo -n "--OK" || die "--Failed!" 40
+    Db=${DATABASES[$i]}
+    # cd to working directory
+	echo -n "  * ${Db}: cd"
+    if is_array WORK_DIR
+    then
+        cd ${WORK_DIR[$i]} die " -- Failed to change directory to: ${WORK_DIR[$i]}" 41
+    else
+        cd ${WORK_DIR} die " -- Failed to change directory to: ${WORK_DIR}" 42
+    fi
+    # run dump
+    if is_array DB_DUMP
+    then
+        DUMP_CMD=${DB_DUMP[$i]}
+    else
+        DUMP_CMD=${DB_DUMP}
+    fi
+    if is_array DB_ARGS
+    then
+        DUMP_ARGS=${DB_ARGS[$i]}
+    else
+        DUMP_ARGS=${DB_ARGS:-}
+    fi
+	echo -n " dump"
+    ${SUDO_CMD:-} ${DUMP_CMD} ${DUMP_ARGS} "${Db}" > "${Outdir}/${Db}.sql" && echo -n " -- OK" || die " -- Database dump failed." 40
+
+    echo
 done
 
-echo ; echo -n "Copying to ${REMOTE_BASE}:"
+echo ; echo -n "- Copying to ${REMOTE_BASE}${Timestamp}:"
 
 if [ "$DryRun"  = "n" ]
 then
-	rsync -a "${REMOTE_AUTH[@]}" "${Outdir}/" "${REMOTE_BASE}$Timestamp/"
+	rsync -a "${REMOTE_AUTH[@]:-}" "${Outdir}/" "${REMOTE_BASE}${Timestamp}"
 else
 	echo
-	rsync -avn "${REMOTE_AUTH[@]}" "${Outdir}/" "${REMOTE_BASE}$Timestamp/"
+	rsync -avn "${REMOTE_AUTH[@]:-}" "${Outdir}/" "${REMOTE_BASE}${Timestamp}"
 fi
 
 if [ $? -ne 0 ]
 then
 	echo " Error code: $?"
-	die "rsync failed, retaining local files." 50
+	die "rsync failed, retaining local files in ${Outdir}." 50
 else
 	echo " Done."
-	echo -n "Deleting temporary files:"
+	echo -n "- Deleting temporary files:"
 
-	for Db in ${DATABASES}
+    cd "${Outdir}"
+	for Db in ${DATABASES[@]}
 	do
 		rm -f "${Db}.sql" && echo -n " ${Db}.sql" || die "Could not delete ${Db}.sql." 60
 	done
