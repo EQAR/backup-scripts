@@ -148,27 +148,41 @@ then
 	mkdir -p ${LOG_DIR}/${Job} || die "Error: could not create log directory ${LOG_DIR}/${Job}." 70
 fi
 
-if [ -z ${Oldstamp+x} ]
+Logfile="${LOG_DIR}/${Job}/${Timestamp:-$(date +%Y-%m-%d_%H:%m%z)}"
+
+############################################################
+### real work starts here ##################################
+############################################################
+
+echo -n "3. Creating snapshot: "
+
+if [ -z ${Oldstamp+x} ] || [ "${Oldstamp}" = "${Timestamp}" ]
 then
-	echo -n "3. Creating initial snapshot: "
+	[ -z ${Oldstamp+x} ] && echo -n "(initial) " || echo -n "(static) "
+	#
+	# initial snapshot or static tag - rsync in default mode
+	#
 	if [ "$DryRun"  = "n" ]
 	then
-		rsync -ai "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > "${LOG_DIR}/${Job}/${Timestamp}"
+		rsync -ai --filter="dir-merge ${BACKUP_FILTER}" "${REMOTE_AUTH[@]:---}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > ${Logfile}
 		RsyncExit=$?
 	else
 		echo
-		rsync -aivn "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
+		rsync -avn --filter="dir-merge ${BACKUP_FILTER}" "${REMOTE_AUTH[@]:---}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
 		RsyncExit=$?
 	fi
 else
-	echo -n "3. Creating new snapshot: "
+	echo -n "(timestamped) "
+	#
+	# changing tag: snapshot-style, rsync with --link-dest
+	#
 	if [ "$DryRun"  = "n" ]
 	then
-		rsync -ai "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > "${LOG_DIR}/${Job}/${Timestamp}"
+		rsync -ai --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${REMOTE_AUTH[@]:---}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/" > ${Logfile}
 		RsyncExit=$?
 	else
 		echo
-		rsync -aivn "${REMOTE_AUTH[@]}" --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
+		rsync -avn --filter="dir-merge ${BACKUP_FILTER}" --link-dest="../$Oldstamp" "${REMOTE_AUTH[@]:---}" "${BACKUP_TREE}/" "${REMOTE_BASE}$Timestamp/"
 		RsyncExit=$?
 	fi
 fi
