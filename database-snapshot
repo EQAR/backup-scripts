@@ -97,9 +97,9 @@ do
 	echo -n "  * ${Db}: cd"
     if is_array WORK_DIR
     then
-        cd ${WORK_DIR[$i]} die " -- Failed to change directory to: ${WORK_DIR[$i]}" 41
+        cd ${WORK_DIR[$i]} || die " -- Failed to change directory to: ${WORK_DIR[$i]}" 41
     else
-        cd ${WORK_DIR} die " -- Failed to change directory to: ${WORK_DIR}" 42
+        cd ${WORK_DIR} || die " -- Failed to change directory to: ${WORK_DIR}" 42
     fi
     # run dump
     if is_array DB_DUMP
@@ -124,10 +124,10 @@ echo ; echo -n "- Copying to ${REMOTE_BASE}${Timestamp}:"
 
 if [ "$DryRun"  = "n" ]
 then
-	rsync -a "${REMOTE_AUTH[@]:-}" "${Outdir}/" "${REMOTE_BASE}${Timestamp}"
+	rsync -a "${REMOTE_AUTH[@]:---}" "${Outdir}/" "${REMOTE_BASE}${Timestamp}"
 else
 	echo
-	rsync -avn "${REMOTE_AUTH[@]:-}" "${Outdir}/" "${REMOTE_BASE}${Timestamp}"
+	rsync -avn "${REMOTE_AUTH[@]:---}" "${Outdir}/" "${REMOTE_BASE}${Timestamp}"
 fi
 
 if [ $? -ne 0 ]

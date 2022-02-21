@@ -148,7 +148,7 @@ then
 	mkdir -p ${LOG_DIR}/${Job} || die "Error: could not create log directory ${LOG_DIR}/${Job}." 70
 fi
 
-Logfile="${LOG_DIR}/${Job}/${Timestamp:-$(date +%Y-%m-%d_%H:%m%z)}"
+Logfile="${LOG_DIR}/${Job}/${Timestamp:-$(date +%Y-%m-%d_%H:%M%z)}"
 
 ############################################################
 ### real work starts here ##################################
