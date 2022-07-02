@@ -2,7 +2,10 @@
 Description=Email notification on unit failure
 
 [Service]
-Type=oneshot
+Type=simple
 EnvironmentFile=/etc/default/%p
+EnvironmentFile=-/etc/default/%N
 ExecStart=/bin/bash -c '/bin/systemctl status %i | $MAIL -s "Unit %i on %H failed." $RECIPIENTS 2>&1'
+Restart=on-failure
+RestartSec=5min
 
